@@ -1,33 +1,76 @@
-"""Creates and simulates a circuit equivalent to a Bell inequality test.
+"""
+Bell's theorem or inequality proves that entanglement based
+observations can't be reproduced with any local realist theory [1].
+
+This example shows Bell inequality in form of CHSH game where two
+players Alice and Bob receive an input bit x and y respectively and
+produce an output a and b based on the input bit.
+The goal is to maximize the probability to satisfy the condition [2]:
+    a XOR b = x AND y
+
+In the classical deterministic case, the highest probability
+achievable is 75%. While with quantum correlations, it can
+achieve higher success probability. In the quantum case, two players
+Alice and Bob starts with a shared Bell-pair entangled state. The
+random input x and y is provided by referee for Alice and Bob. If
+the input x (and y) is 0, Alice (Bob) rotates in Y-basis by angle
+-pi/16 and if the input is 1, Alice (Bob) rotates by angle 3pi/16.
+This is implemented here by a default rotation gate of -pi/16
+followed by a custom controlled-rotation gate in Y-basis that 
+rotates by angle of pi/4 if input from referee is 1. The success
+probability for the above condition will be cos(pi/8)^2 ~ 85.3%
+
+[1] https://en.wikipedia.org/wiki/Bell%27s_theorem
+[2] R. de Wolf. Quantum Computing: Lecture Notes (arXiv:1907.09415, Section 15.2)
 
 === EXAMPLE OUTPUT ===
-
 Circuit:
-(0, 0): ───H───@───X^-0.25───────X^0.5───M───
-               │                 │
-(0, 1): ───────┼─────────────H───@───────M───
+(0, 0): ───H───@───Z─────────────Ry(-0.062π)───Ry(0.25π)───M('a')───────────────
+               │                               │
+(0, 1): ───H───┼───────────────────────────────@───────────M('x')───────────────
                │
-(1, 0): ───────X─────────────────X^0.5───M───
-                                 │
-(1, 1): ─────────────────────H───@───────M───
+(1, 0): ───────X───Ry(-0.062π)─────────────────────────────Ry(0.25π)───M('b')───
+                                                           │
+(1, 1): ───H───────────────────────────────────────────────@───────────M('y')───
 
 Simulating 75 repetitions...
 
 Results
-a: _1__11111___111111_1__1_11_11__111________1___1_111_111_____1111_1_111__1_1
-b: _1__1__11_1_1_1__1_1_1_1_11____111_111__11_____1_1__1111_1_11___111_11_1__1
-x: ____11______11111__1_1111111____1_111__1111___1111_1__11_1__11_11_11_1__11_
-y: 11_111_____1_1_111__11111_111_1____1____11_____11___11_1_1___1_111111_1_1_1
+a: 1_1______1_1__1_1__1_1_111____1_1111___1__1_11___1111__1_1_1111______1__1_1
+b: 1_1__1_1___1____11_111__1____11111_1___1_11_11_1_____1_11__1_1_1_11__11_1__
+x: _1___1_1______11_1__1111_1__111__11___1__1____11_1111__111____11__11_1_1_11
+y: ___1_1_111__111_11__1__11111_1_1__1_______111__1_11111_1_1__11_1111__11_1_1
 (a XOR b) == (x AND y):
-   1111_1_111_11111111111111111_1111111__1111_111_111_11111111_11_11111111_111
-Win rate: 84.0%
+   111111111_111111111111111111111_111111111_11111111111_1__111_1_11_111__1111
+Win rate: 85.33333333333333%
 """
 
 import numpy as np
 
 import cirq
 
+class CRy(cirq.TwoQubitGate):
 
+    def __init__(self, theta):
+        self.theta = theta
+
+    def _unitary_(self):
+            
+      sintheta = np.sin(self.theta)
+      costheta = np.cos(self.theta)
+      
+      return np.array([
+          [1, 0, 0,               0],
+          [0, 1, 0,               0],
+          [0, 0, costheta,        -sintheta],
+          [0, 0, sintheta,       costheta]
+      ])
+    
+    def _circuit_diagram_info_(self, args):
+        # the @ is for control
+        return '@', 'Ry({}π)'.format(self.theta / np.pi)
+          
+          
 def main():
     # Create circuit.
     circuit = make_bell_test_circuit()
@@ -71,7 +114,7 @@ def make_bell_test_circuit():
     circuit.append([
         cirq.H(alice),
         cirq.CNOT(alice, bob),
-        cirq.X(alice)**-0.25,
+        cirq.Z(alice)
     ])
 
     # Referees flip coins.
@@ -80,10 +123,12 @@ def make_bell_test_circuit():
         cirq.H(bob_referee),
     ])
 
-    # Players do a sqrt(X) based on their referee's coin.
+    # Players do a rotation based on the referee's input.
     circuit.append([
-        cirq.CNOT(alice_referee, alice)**0.5,
-        cirq.CNOT(bob_referee, bob)**0.5,
+        cirq.ry(-np.pi/16)(alice),
+        cirq.Circuit(CRy(np.pi/4)(alice_referee, alice)),
+        cirq.ry(-np.pi/16)(bob),
+        cirq.Circuit(CRy(np.pi/4)(bob_referee, bob)),
     ])
 
     # Then results are recorded.
